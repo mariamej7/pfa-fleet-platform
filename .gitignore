@@ -1,0 +1,42 @@
+# Secrets et configuration locale
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Environnements Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Next.js et Node.js
+node_modules/
+.next/
+.vercel/
+out/
+build/
+*.tsbuildinfo
+
+# Données de flotte et exports
+*.csv
+*.parquet
+*.xlsx
+*.xls
+*.sqlite
+*.sqlite3
+*.db
+*.zip
+uploads/
+datasets/
+exports/
+
+# Fichiers temporaires
+*.log
+.DS_Store
+spark-warehouse/
+metastore_db/
