@@ -1,3 +1,4 @@
+
 from pathlib import Path
 from uuid import uuid4
 
@@ -44,6 +45,9 @@ ALLOWED_EXTENSIONS = {
     ".csv",
     ".parquet",
 }
+
+# Limite de 50 Mo par fichier
+MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
 
 
 # =========================================================
@@ -94,7 +98,7 @@ async def upload_fleet_file(
 
     try:
 
-        # Lecture par blocs de 1 MB
+        # Lecture par blocs de 1 Mo
         with destination.open("wb") as output_file:
 
             while True:
@@ -106,6 +110,19 @@ async def upload_fleet_file(
                 if not chunk:
                     break
 
+                # Refuser un fichier dépassant 50 Mo
+                if (
+                    size_bytes + len(chunk)
+                    > MAX_UPLOAD_SIZE_BYTES
+                ):
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "Fichier trop volumineux. "
+                            "Taille maximale : 50 Mo."
+                        ),
+                    )
+
                 output_file.write(
                     chunk
                 )
@@ -114,9 +131,19 @@ async def upload_fleet_file(
                     chunk
                 )
 
+    except HTTPException:
+
+        # Supprimer le fichier incomplet
+        # et conserver le code HTTP 413
+        if destination.exists():
+            destination.unlink()
+
+        raise
+
     except Exception:
 
         # Supprimer le fichier incomplet
+        # si une autre erreur survient
         if destination.exists():
             destination.unlink()
 
