@@ -1,3 +1,6 @@
+
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,7 +10,6 @@ from app.api.dashboard import router as dashboard_router
 from app.api.fuel import router as fuel_router
 from app.api.analytics import router as analytics_router
 from app.api.data_quality import router as data_quality_router
-
 from app.api.imports import router as imports_router
 
 
@@ -21,13 +23,22 @@ app = FastAPI(
 )
 
 
-# Autoriser le frontend Next.js pendant le développement
+# Autoriser le frontend local et le futur site de demonstration
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# Cette variable sera configuree lors du deploiement.
+frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

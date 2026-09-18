@@ -4,5 +4,7 @@ sqlalchemy==2.0.52
 psycopg[binary]
 python-dotenv
 python-multipart
-pandas
-pyarrow
+pandas==2.3.3
+pyarrow==21.0.0
+pyspark==4.0.4
+scikit-learn==1.6.1
