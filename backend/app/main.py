@@ -65,4 +65,8 @@ app.include_router(dashboard_router)
 app.include_router(fuel_router)
 app.include_router(analytics_router)
 app.include_router(data_quality_router)
-app.include_router(imports_router)
+
+# Dataset uploads and analysis are disabled by default until authorization,
+# resource limits and abuse protections have been implemented.
+if os.getenv("ENABLE_IMPORTS", "false").strip().lower() == "true":
+    app.include_router(imports_router)
