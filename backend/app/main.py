@@ -4,6 +4,12 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.database import Base, engine
+# Import all ORM models so SQLAlchemy knows which tables to create.
+import app.models
+import app.models.analysis_run
+import app.models.fuel_event
+
 from app.api.vehicles import router as vehicles_router
 from app.api.alerts import router as alerts_router
 from app.api.dashboard import router as dashboard_router
@@ -21,6 +27,13 @@ app = FastAPI(
     ),
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+def initialize_demo_database():
+    # Creates only missing tables; does not drop tables or insert data.
+    # Temporary demo setup: replace with versioned migrations for production.
+    Base.metadata.create_all(bind=engine)
 
 
 # Autoriser le frontend local et le futur site de demonstration
