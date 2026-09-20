@@ -28,10 +28,6 @@ import {
 } from "@/lib/api";
 
 
-const MAX_DEMO_FILE_SIZE_BYTES =
-  5 * 1024 * 1024;
-
-
 export default function ImportsPage() {
 
   const fileInputRef =
@@ -39,12 +35,6 @@ export default function ImportsPage() {
 
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null);
-
-  const [importKey, setImportKey] =
-    useState("");
-
-  const [persistResults, setPersistResults] =
-    useState(false);
 
   const [isUploading, setIsUploading] =
     useState(false);
@@ -131,21 +121,6 @@ export default function ImportsPage() {
       event.target.files?.[0];
 
     if (!file) {
-      return;
-    }
-
-    if (
-      file.size >
-      MAX_DEMO_FILE_SIZE_BYTES
-    ) {
-      setSelectedFile(null);
-      setUploadResult(null);
-      setValidationResult(null);
-      setErrorMessage(
-        "Le mode démonstration accepte des fichiers de 5 Mo maximum."
-      );
-
-      event.target.value = "";
       return;
     }
 
@@ -239,16 +214,6 @@ export default function ImportsPage() {
       return;
     }
 
-    const normalizedImportKey =
-      importKey.trim();
-
-    if (!normalizedImportKey) {
-      setErrorMessage(
-        "Saisissez la clé d'import."
-      );
-      return;
-    }
-
     setIsUploading(true);
 
     setErrorMessage(null);
@@ -264,10 +229,7 @@ export default function ImportsPage() {
 
       // 1. Upload
       const uploaded =
-        await uploadFleetFile(
-          selectedFile,
-          normalizedImportKey
-        );
+        await uploadFleetFile(selectedFile);
 
       setUploadResult(
         uploaded
@@ -278,8 +240,7 @@ export default function ImportsPage() {
 
       const validation =
         await validateFleetDataset(
-          uploaded.upload_id,
-          normalizedImportKey
+          uploaded.upload_id
         );
 
       setValidationResult(
@@ -318,8 +279,7 @@ export default function ImportsPage() {
     if (
       !uploadResult ||
       !validationResult ||
-      !validationResult.compatible ||
-      !importKey.trim()
+      !validationResult.compatible
     ) {
       return;
     }
@@ -333,9 +293,7 @@ export default function ImportsPage() {
 
       const result =
         await analyzeFleetDataset(
-          uploadResult.upload_id,
-          importKey.trim(),
-          persistResults
+          uploadResult.upload_id
         );
 
       setAnalysisResult(
@@ -490,46 +448,6 @@ export default function ImportsPage() {
             Formats acceptés : CSV et Parquet
           </p>
 
-          <p className="mt-2 max-w-xl text-center text-xs leading-5 text-slate-500">
-            Démonstration gratuite : 5 Mo et 100&nbsp;000 lignes maximum,
-            analyse Pandas et un seul traitement à la fois.
-          </p>
-
-
-          <div className="mt-6 w-full max-w-md text-left">
-
-            <label
-              htmlFor="import-key"
-              className="text-sm font-medium text-slate-700"
-            >
-              Clé d&apos;import
-            </label>
-
-            <input
-              id="import-key"
-              type="password"
-              value={importKey}
-              onChange={(event) => {
-                setImportKey(event.target.value);
-                setErrorMessage(null);
-              }}
-              autoComplete="off"
-              placeholder="Saisissez votre clé secrète"
-              disabled={
-                isUploading ||
-                isValidating ||
-                isAnalyzing
-              }
-              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100"
-            />
-
-            <p className="mt-2 text-xs text-slate-500">
-              Cette clé reste uniquement dans cette page.
-            </p>
-
-          </div>
-
-
           <input
             ref={fileInputRef}
             type="file"
@@ -605,8 +523,7 @@ export default function ImportsPage() {
                 disabled={
                   isUploading ||
                   isValidating ||
-                  isAnalyzing ||
-                  !importKey.trim()
+                  isAnalyzing
                 }
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -891,30 +808,6 @@ export default function ImportsPage() {
 
                 <div className="mt-7 border-t border-slate-200 pt-6">
 
-                  <label className="mb-4 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-
-                    <input
-                      type="checkbox"
-                      checked={persistResults}
-                      onChange={(event) =>
-                        setPersistResults(event.target.checked)
-                      }
-                      disabled={isAnalyzing}
-                      className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600"
-                    />
-
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-800">
-                        Mettre à jour les tableaux de bord
-                      </span>
-
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">
-                        Laissez cette option décochée pour tester le pipeline sans remplacer le dataset actuellement présenté au jury.
-                      </span>
-                    </span>
-
-                  </label>
-
                   <button
                     type="button"
                     onClick={handleAnalyze}
@@ -1017,13 +910,6 @@ export default function ImportsPage() {
                   Le pipeline Data a analysé
                   automatiquement le dataset.
                 </p>
-
-                {!persistResults && (
-
-                  <p className="mt-2 text-sm font-medium text-amber-700">
-                    Mode test : les tableaux de bord existants ont été conservés.
-                  </p>
-                )}
 
                 {moteurUtilise && (
 
