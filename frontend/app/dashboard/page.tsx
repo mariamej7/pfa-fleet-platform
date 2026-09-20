@@ -1,8 +1,50 @@
-import { getDashboardSummary } from "@/lib/api";
+import {
+  getDashboardSummary,
+  type DashboardSummary,
+} from "@/lib/api";
 
 
 export default async function DashboardPage() {
-  const summary = await getDashboardSummary();
+  let summary: DashboardSummary;
+
+  try {
+    summary = await getDashboardSummary();
+  } catch {
+    return (
+      <div>
+        <div className="mb-8">
+          <p className="mb-2 text-sm font-semibold text-blue-600">
+            Vue d&apos;ensemble
+          </p>
+
+          <h1 className="text-3xl font-bold text-slate-900">
+            Tableau de bord flotte
+          </h1>
+        </div>
+
+        <div
+          className="max-w-2xl rounded-xl border border-amber-200 bg-amber-50 p-6"
+          role="alert"
+        >
+          <h2 className="text-lg font-semibold text-amber-950">
+            Données temporairement indisponibles
+          </h2>
+
+          <p className="mt-2 text-amber-900">
+            Le service d&apos;analyse peut mettre quelques secondes à redémarrer.
+            Actualisez la page pour réessayer.
+          </p>
+
+          <a
+            className="mt-5 inline-flex rounded-lg bg-amber-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-800"
+            href="/dashboard"
+          >
+            Réessayer
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   const nombreVehicules = summary.nombre_vehicules ?? 0;
   const distanceTotale = summary.distance_totale_km ?? 0;
