@@ -57,6 +57,28 @@ SPARK_ROW_THRESHOLD = int(
     )
 )
 
+# L'instance Render gratuite (512 Mo de RAM) est réservée
+# à une démonstration Pandas sur de petits datasets.
+MAX_ANALYSIS_ROWS = max(
+    1,
+    int(
+        os.getenv(
+            "IMPORT_MAX_ANALYSIS_ROWS",
+            "100000",
+        )
+    ),
+)
+
+SPARK_IMPORTS_ENABLED = (
+    os.getenv(
+        "ENABLE_SPARK_IMPORTS",
+        "false",
+    )
+    .strip()
+    .lower()
+    == "true"
+)
+
 
 # ============================================================
 # FICHIER DE METADONNEES DE VALIDATION
@@ -186,7 +208,10 @@ def select_processing_engine(
     selon le volume du dataset.
     """
 
-    if row_count >= SPARK_ROW_THRESHOLD:
+    if (
+        row_count >= SPARK_ROW_THRESHOLD
+        and SPARK_IMPORTS_ENABLED
+    ):
 
         return {
             "moteur_recommande":
@@ -499,7 +524,10 @@ def validate_parquet(
     # Lecture des colonnes utiles uniquement
     # --------------------------------------------------------
 
-    if useful_columns:
+    if (
+        useful_columns
+        and row_count <= MAX_ANALYSIS_ROWS
+    ):
 
         for batch in (
             parquet_file
@@ -717,6 +745,36 @@ def validate_dataset(
             "Le dataset ne contient pas toutes "
             "les colonnes nécessaires au "
             "pipeline complet."
+        )
+
+    elif row_count > MAX_ANALYSIS_ROWS:
+
+        compatible = False
+
+        analysis_level = (
+            "Volume non pris en charge"
+        )
+
+        message = (
+            "Le mode démonstration gratuit accepte "
+            f"au maximum {MAX_ANALYSIS_ROWS} lignes "
+            "par analyse."
+        )
+
+    elif (
+        row_count >= SPARK_ROW_THRESHOLD
+        and not SPARK_IMPORTS_ENABLED
+    ):
+
+        compatible = False
+
+        analysis_level = (
+            "Spark désactivé sur le web"
+        )
+
+        message = (
+            "Ce volume nécessite Apache Spark, "
+            "désactivé sur l'instance web gratuite."
         )
 
     else:

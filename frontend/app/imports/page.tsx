@@ -28,6 +28,10 @@ import {
 } from "@/lib/api";
 
 
+const MAX_DEMO_FILE_SIZE_BYTES =
+  5 * 1024 * 1024;
+
+
 export default function ImportsPage() {
 
   const fileInputRef =
@@ -124,6 +128,21 @@ export default function ImportsPage() {
       event.target.files?.[0];
 
     if (!file) {
+      return;
+    }
+
+    if (
+      file.size >
+      MAX_DEMO_FILE_SIZE_BYTES
+    ) {
+      setSelectedFile(null);
+      setUploadResult(null);
+      setValidationResult(null);
+      setErrorMessage(
+        "Le mode démonstration accepte des fichiers de 5 Mo maximum."
+      );
+
+      event.target.value = "";
       return;
     }
 
@@ -465,6 +484,11 @@ export default function ImportsPage() {
 
           <p className="mt-2 text-sm text-slate-500">
             Formats acceptés : CSV et Parquet
+          </p>
+
+          <p className="mt-2 max-w-xl text-center text-xs leading-5 text-slate-500">
+            Démonstration gratuite : 5 Mo et 100&nbsp;000 lignes maximum,
+            analyse Pandas et un seul traitement à la fois.
           </p>
 
 

@@ -1,7 +1,9 @@
 
 import os
+import re
 import secrets
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 
 from fastapi import (
@@ -81,8 +83,80 @@ ALLOWED_EXTENSIONS = {
     ".parquet",
 }
 
-# Limite de 50 Mo par fichier
-MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+# Limites du mode démonstration hébergé sur Render Free.
+MAX_UPLOAD_SIZE_MB = max(
+    1,
+    int(
+        os.getenv(
+            "IMPORT_MAX_UPLOAD_SIZE_MB",
+            "5",
+        )
+    ),
+)
+
+MAX_UPLOAD_SIZE_BYTES = (
+    MAX_UPLOAD_SIZE_MB
+    * 1024
+    * 1024
+)
+
+_analysis_lock = Lock()
+
+
+def _is_valid_upload_id(
+    upload_id: str,
+) -> bool:
+    return bool(
+        re.fullmatch(
+            r"[0-9a-fA-F]{32}",
+            upload_id,
+        )
+    )
+
+
+def _require_valid_upload_id(
+    upload_id: str,
+) -> None:
+    if not _is_valid_upload_id(
+        upload_id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Identifiant d'import invalide."
+            ),
+        )
+
+
+def _cleanup_upload_files(
+    upload_id: str,
+) -> None:
+    """Supprime les fichiers temporaires liés à un import."""
+
+    if not _is_valid_upload_id(
+        upload_id
+    ):
+        return
+
+    for suffix in (
+        ".csv",
+        ".parquet",
+        ".validation.json",
+    ):
+        file_path = (
+            UPLOAD_DIR
+            / f"{upload_id}{suffix}"
+        )
+
+        try:
+            file_path.unlink(
+                missing_ok=True
+            )
+        except OSError:
+            # Le stockage Render est temporaire.
+            # Une suppression impossible ne doit pas masquer
+            # le résultat de l'analyse.
+            pass
 
 
 # =========================================================
@@ -145,7 +219,7 @@ async def upload_fleet_file(
                 if not chunk:
                     break
 
-                # Refuser un fichier dépassant 50 Mo
+                # Refuser un fichier dépassant la limite de démonstration
                 if (
                     size_bytes + len(chunk)
                     > MAX_UPLOAD_SIZE_BYTES
@@ -154,7 +228,7 @@ async def upload_fleet_file(
                         status_code=413,
                         detail=(
                             "Fichier trop volumineux. "
-                            "Taille maximale : 50 Mo."
+                            f"Taille maximale : {MAX_UPLOAD_SIZE_MB} Mo."
                         ),
                     )
 
@@ -194,6 +268,16 @@ async def upload_fleet_file(
 
         await file.close()
 
+    if size_bytes == 0:
+        destination.unlink(
+            missing_ok=True
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail="Le fichier est vide.",
+        )
+
     return {
         "status": "uploaded",
         "upload_id": upload_id,
@@ -215,12 +299,24 @@ async def upload_fleet_file(
 def validate_uploaded_dataset(
     upload_id: str,
 ):
+    _require_valid_upload_id(
+        upload_id
+    )
+
     try:
 
         result = validate_dataset(
             UPLOAD_DIR,
             upload_id,
         )
+
+        if not result.get(
+            "compatible",
+            False,
+        ):
+            _cleanup_upload_files(
+                upload_id
+            )
 
         return result
 
@@ -233,12 +329,20 @@ def validate_uploaded_dataset(
 
     except ValueError as error:
 
+        _cleanup_upload_files(
+            upload_id
+        )
+
         raise HTTPException(
             status_code=400,
             detail=str(error),
         )
 
     except Exception as error:
+
+        _cleanup_upload_files(
+            upload_id
+        )
 
         print(
             "Erreur validation dataset:",
@@ -277,6 +381,24 @@ def analyze_uploaded_file(
     -> tables plateforme
     """
 
+    _require_valid_upload_id(
+        upload_id
+    )
+
+    if not _analysis_lock.acquire(
+        blocking=False
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Une analyse est déjà en cours. "
+                "Réessayez dans quelques instants."
+            ),
+            headers={
+                "Retry-After": "30",
+            },
+        )
+
     try:
 
         result = analyze_uploaded_dataset(
@@ -314,3 +436,11 @@ def analyze_uploaded_file(
                 "du dataset."
             ),
         )
+
+    finally:
+
+        _cleanup_upload_files(
+            upload_id
+        )
+
+        _analysis_lock.release()
