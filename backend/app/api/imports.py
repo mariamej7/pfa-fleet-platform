@@ -12,6 +12,7 @@ from fastapi import (
     File,
     Header,
     HTTPException,
+    Query,
     UploadFile,
 )
 
@@ -367,6 +368,14 @@ def validate_uploaded_dataset(
 )
 def analyze_uploaded_file(
     upload_id: str,
+    persist: bool = Query(
+        default=True,
+        description=(
+            "Enregistrer les résultats dans PostgreSQL. "
+            "Utiliser false pour un test sans remplacer "
+            "le dataset actif."
+        ),
+    ),
 ):
     """
     Lance le pipeline complet sur un fichier
@@ -404,6 +413,7 @@ def analyze_uploaded_file(
         result = analyze_uploaded_dataset(
             UPLOAD_DIR,
             upload_id,
+            persist_results=persist,
         )
 
         return result

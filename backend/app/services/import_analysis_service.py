@@ -2,6 +2,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Dict
+from uuid import uuid4
 
 import pandas as pd
 
@@ -546,6 +547,7 @@ def _run_spark_pipeline(
 def analyze_uploaded_dataset(
     upload_dir: Path,
     upload_id: str,
+    persist_results: bool = True,
 ) -> Dict:
     """
     Lance automatiquement le pipeline approprié.
@@ -584,10 +586,19 @@ def analyze_uploaded_dataset(
     # 3. CREER LE RUN
     # --------------------------------------------------------
 
-    analysis_run_id = create_analysis_run(
-        upload_id=upload_id,
-        filename=file_path.name,
-    )
+    if persist_results:
+
+        analysis_run_id = create_analysis_run(
+            upload_id=upload_id,
+            filename=file_path.name,
+        )
+
+    else:
+
+        analysis_run_id = (
+            "dry-run-"
+            f"{uuid4().hex}"
+        )
 
     spark_session = None
 
@@ -759,15 +770,42 @@ def analyze_uploaded_dataset(
         # 7. POSTGRESQL
         # ====================================================
 
-        database_result = (
-            save_platform_results(
-                analysis_run_id=
+        if persist_results:
+
+            database_result = (
+                save_platform_results(
+                    analysis_run_id=
+                        analysis_run_id,
+
+                    platform_results=
+                        platform_results,
+                )
+            )
+
+        else:
+
+            database_result = {
+                "database_saved":
+                    False,
+
+                "analysis_run_id":
                     analysis_run_id,
 
-                platform_results=
-                    platform_results,
-            )
-        )
+                "tables": {
+                    table_name:
+                        len(dataframe)
+
+                    for (
+                        table_name,
+                        dataframe,
+                    ) in platform_results.items()
+
+                    if isinstance(
+                        dataframe,
+                        pd.DataFrame,
+                    )
+                },
+            }
 
         # ====================================================
         # 8. CONFIANCE
@@ -1082,18 +1120,20 @@ def analyze_uploaded_dataset(
 
     except Exception as error:
 
-        try:
+        if persist_results:
 
-            mark_analysis_run_failed(
-                analysis_run_id=
-                    analysis_run_id,
+            try:
 
-                error_message=
-                    str(error),
-            )
+                mark_analysis_run_failed(
+                    analysis_run_id=
+                        analysis_run_id,
 
-        except Exception:
-            pass
+                    error_message=
+                        str(error),
+                )
+
+            except Exception:
+                pass
 
         raise
 
