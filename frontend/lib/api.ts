@@ -59,7 +59,8 @@ export type UploadResult = {
 
 
 export async function uploadFleetFile(
-  file: File
+  file: File,
+  importKey: string
 ): Promise<UploadResult> {
 
   const formData = new FormData();
@@ -73,6 +74,9 @@ export async function uploadFleetFile(
     `${API_URL}/api/imports/upload`,
     {
       method: "POST",
+      headers: {
+        "X-Import-Key": importKey,
+      },
       body: formData,
     }
   );
@@ -123,13 +127,17 @@ export type DatasetValidationResult = {
 
 
 export async function validateFleetDataset(
-  uploadId: string
+  uploadId: string,
+  importKey: string
 ): Promise<DatasetValidationResult> {
 
   const response = await fetch(
     `${API_URL}/api/imports/${uploadId}/validate`,
     {
       method: "POST",
+      headers: {
+        "X-Import-Key": importKey,
+      },
     }
   );
 
@@ -216,13 +224,17 @@ export type DatasetAnalysisResult = {
 
 
 export async function analyzeFleetDataset(
-  uploadId: string
+  uploadId: string,
+  importKey: string
 ): Promise<DatasetAnalysisResult> {
 
   const response = await fetch(
     `${API_URL}/api/imports/${uploadId}/analyze`,
     {
       method: "POST",
+      headers: {
+        "X-Import-Key": importKey,
+      },
     }
   );
 
