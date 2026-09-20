@@ -36,6 +36,9 @@ export default function ImportsPage() {
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null);
 
+  const [importKey, setImportKey] =
+    useState("");
+
   const [isUploading, setIsUploading] =
     useState(false);
 
@@ -214,6 +217,16 @@ export default function ImportsPage() {
       return;
     }
 
+    const normalizedImportKey =
+      importKey.trim();
+
+    if (!normalizedImportKey) {
+      setErrorMessage(
+        "Saisissez la clé d'import."
+      );
+      return;
+    }
+
     setIsUploading(true);
 
     setErrorMessage(null);
@@ -230,7 +243,8 @@ export default function ImportsPage() {
       // 1. Upload
       const uploaded =
         await uploadFleetFile(
-          selectedFile
+          selectedFile,
+          normalizedImportKey
         );
 
       setUploadResult(
@@ -242,7 +256,8 @@ export default function ImportsPage() {
 
       const validation =
         await validateFleetDataset(
-          uploaded.upload_id
+          uploaded.upload_id,
+          normalizedImportKey
         );
 
       setValidationResult(
@@ -281,7 +296,8 @@ export default function ImportsPage() {
     if (
       !uploadResult ||
       !validationResult ||
-      !validationResult.compatible
+      !validationResult.compatible ||
+      !importKey.trim()
     ) {
       return;
     }
@@ -295,7 +311,8 @@ export default function ImportsPage() {
 
       const result =
         await analyzeFleetDataset(
-          uploadResult.upload_id
+          uploadResult.upload_id,
+          importKey.trim()
         );
 
       setAnalysisResult(
@@ -451,6 +468,40 @@ export default function ImportsPage() {
           </p>
 
 
+          <div className="mt-6 w-full max-w-md text-left">
+
+            <label
+              htmlFor="import-key"
+              className="text-sm font-medium text-slate-700"
+            >
+              Clé d&apos;import
+            </label>
+
+            <input
+              id="import-key"
+              type="password"
+              value={importKey}
+              onChange={(event) => {
+                setImportKey(event.target.value);
+                setErrorMessage(null);
+              }}
+              autoComplete="off"
+              placeholder="Saisissez votre clé secrète"
+              disabled={
+                isUploading ||
+                isValidating ||
+                isAnalyzing
+              }
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100"
+            />
+
+            <p className="mt-2 text-xs text-slate-500">
+              Cette clé reste uniquement dans cette page.
+            </p>
+
+          </div>
+
+
           <input
             ref={fileInputRef}
             type="file"
@@ -526,7 +577,8 @@ export default function ImportsPage() {
                 disabled={
                   isUploading ||
                   isValidating ||
-                  isAnalyzing
+                  isAnalyzing ||
+                  !importKey.trim()
                 }
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
