@@ -1,10 +1,14 @@
 
+import os
+import secrets
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import (
     APIRouter,
+    Depends,
     File,
+    Header,
     HTTPException,
     UploadFile,
 )
@@ -22,9 +26,40 @@ from app.services.import_analysis_service import (
 )
 
 
+def require_import_key(
+    x_import_key: str | None = Header(default=None),
+) -> None:
+    expected_key = os.getenv(
+        "IMPORT_API_KEY",
+        "",
+    ).strip()
+
+    if not expected_key:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "La clé d'import n'est pas configurée "
+                "sur le serveur."
+            ),
+        )
+
+    if (
+        not x_import_key
+        or not secrets.compare_digest(
+            x_import_key,
+            expected_key,
+        )
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Clé d'import invalide.",
+        )
+
+
 router = APIRouter(
     prefix="/api/imports",
     tags=["Imports"],
+    dependencies=[Depends(require_import_key)],
 )
 
 
