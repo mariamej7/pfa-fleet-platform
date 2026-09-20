@@ -1,7 +1,10 @@
 
+import hashlib
+import hmac
 import os
 import re
 import secrets
+import time
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
@@ -29,8 +32,87 @@ from app.services.import_analysis_service import (
 )
 
 
+IMPORT_TOKEN_TTL_SECONDS = max(
+    60,
+    min(
+        int(
+            os.getenv(
+                "IMPORT_TOKEN_TTL_SECONDS",
+                "900",
+            )
+        ),
+        900,
+    ),
+)
+
+
+def _is_valid_import_token(
+    token: str | None,
+    secret_key: str,
+) -> bool:
+    if not token:
+        return False
+
+    try:
+        issued_at_raw, nonce, signature = (
+            token.split(".", 2)
+        )
+
+        if not re.fullmatch(
+            r"[0-9]{10,}",
+            issued_at_raw,
+        ):
+            return False
+
+        if not re.fullmatch(
+            r"[0-9a-fA-F]{32}",
+            nonce,
+        ):
+            return False
+
+        if not re.fullmatch(
+            r"[0-9a-fA-F]{64}",
+            signature,
+        ):
+            return False
+
+        issued_at = int(
+            issued_at_raw
+        )
+        now = int(time.time())
+
+        if issued_at > now + 30:
+            return False
+
+        if (
+            now - issued_at
+            > IMPORT_TOKEN_TTL_SECONDS
+        ):
+            return False
+
+        payload = (
+            f"{issued_at_raw}.{nonce}"
+            .encode("utf-8")
+        )
+
+        expected_signature = hmac.new(
+            secret_key.encode("utf-8"),
+            payload,
+            hashlib.sha256,
+        ).hexdigest()
+
+        return secrets.compare_digest(
+            signature,
+            expected_signature,
+        )
+
+    except (TypeError, ValueError):
+        return False
+
+
 def require_import_key(
     x_import_key: str | None = Header(default=None),
+    x_import_token: str | None = Header(default=None),
 ) -> None:
     expected_key = os.getenv(
         "IMPORT_API_KEY",
@@ -46,16 +128,23 @@ def require_import_key(
             ),
         )
 
-    if (
-        not x_import_key
-        or not secrets.compare_digest(
+    key_is_valid = bool(
+        x_import_key
+        and secrets.compare_digest(
             x_import_key,
             expected_key,
         )
-    ):
+    )
+
+    token_is_valid = _is_valid_import_token(
+        x_import_token,
+        expected_key,
+    )
+
+    if not key_is_valid and not token_is_valid:
         raise HTTPException(
             status_code=401,
-            detail="Clé d'import invalide.",
+            detail="Autorisation d'import invalide.",
         )
 
 
@@ -90,7 +179,7 @@ MAX_UPLOAD_SIZE_MB = max(
     int(
         os.getenv(
             "IMPORT_MAX_UPLOAD_SIZE_MB",
-            "5",
+            "25",
         )
     ),
 )

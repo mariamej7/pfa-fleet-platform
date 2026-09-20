@@ -64,7 +64,7 @@ MAX_ANALYSIS_ROWS = max(
     int(
         os.getenv(
             "IMPORT_MAX_ANALYSIS_ROWS",
-            "100000",
+            "350000",
         )
     ),
 )

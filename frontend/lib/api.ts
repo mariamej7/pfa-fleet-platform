@@ -58,6 +58,95 @@ export type UploadResult = {
 };
 
 
+type ImportTokenResult = {
+  token: string;
+};
+
+
+async function getApiError(
+  response: Response,
+  fallbackMessage: string
+) {
+  const responseText = await response.text();
+
+  if (!responseText) {
+    return new Error(fallbackMessage);
+  }
+
+  try {
+    const error = JSON.parse(responseText) as {
+      detail?: string;
+    };
+
+    return new Error(
+      error.detail || fallbackMessage
+    );
+
+  } catch {
+    if (
+      response.status === 413 ||
+      responseText.includes(
+        "Request Entity Too Large"
+      )
+    ) {
+      return new Error(
+        "Le fichier dépasse la taille autorisée par le service d'import."
+      );
+    }
+
+    return new Error(fallbackMessage);
+  }
+}
+
+
+async function getImportToken() {
+  const response = await fetch(
+    "/api/imports/token",
+    {
+      method: "POST",
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    throw await getApiError(
+      response,
+      "Le service d'import est temporairement indisponible."
+    );
+  }
+
+  const result =
+    await response.json() as ImportTokenResult;
+
+  if (!result.token) {
+    throw new Error(
+      "Le service d'import est temporairement indisponible."
+    );
+  }
+
+  return result.token;
+}
+
+
+async function postImportRequest(
+  path: string,
+  body?: BodyInit
+) {
+  const token = await getImportToken();
+
+  return fetch(
+    `${API_URL}${path}`,
+    {
+      method: "POST",
+      headers: {
+        "X-Import-Token": token,
+      },
+      body,
+    }
+  );
+}
+
+
 export async function uploadFleetFile(
   file: File
 ): Promise<UploadResult> {
@@ -69,21 +158,15 @@ export async function uploadFleetFile(
     file
   );
 
-  const response = await fetch(
+  const response = await postImportRequest(
     "/api/imports/upload",
-    {
-      method: "POST",
-      body: formData,
-    }
+    formData
   );
 
   if (!response.ok) {
-
-    const error = await response.json();
-
-    throw new Error(
-      error.detail ||
-        "Erreur pendant l'importation."
+    throw await getApiError(
+      response,
+      "Erreur pendant l'importation."
     );
   }
 
@@ -126,20 +209,14 @@ export async function validateFleetDataset(
   uploadId: string
 ): Promise<DatasetValidationResult> {
 
-  const response = await fetch(
-    `/api/imports/${uploadId}/validate`,
-    {
-      method: "POST",
-    }
+  const response = await postImportRequest(
+    `/api/imports/${uploadId}/validate`
   );
 
   if (!response.ok) {
-
-    const error = await response.json();
-
-    throw new Error(
-      error.detail ||
-        "Erreur pendant la validation du dataset."
+    throw await getApiError(
+      response,
+      "Erreur pendant la validation du dataset."
     );
   }
 
@@ -219,20 +296,14 @@ export async function analyzeFleetDataset(
   uploadId: string
 ): Promise<DatasetAnalysisResult> {
 
-  const response = await fetch(
-    `/api/imports/${uploadId}/analyze`,
-    {
-      method: "POST",
-    }
+  const response = await postImportRequest(
+    `/api/imports/${uploadId}/analyze`
   );
 
   if (!response.ok) {
-
-    const error = await response.json();
-
-    throw new Error(
-      error.detail ||
-        "Erreur pendant l'analyse du dataset."
+    throw await getApiError(
+      response,
+      "Erreur pendant l'analyse du dataset."
     );
   }
 
