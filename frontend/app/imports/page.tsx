@@ -43,6 +43,9 @@ export default function ImportsPage() {
   const [importKey, setImportKey] =
     useState("");
 
+  const [persistResults, setPersistResults] =
+    useState(false);
+
   const [isUploading, setIsUploading] =
     useState(false);
 
@@ -331,7 +334,8 @@ export default function ImportsPage() {
       const result =
         await analyzeFleetDataset(
           uploadResult.upload_id,
-          importKey.trim()
+          importKey.trim(),
+          persistResults
         );
 
       setAnalysisResult(
@@ -887,6 +891,30 @@ export default function ImportsPage() {
 
                 <div className="mt-7 border-t border-slate-200 pt-6">
 
+                  <label className="mb-4 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+
+                    <input
+                      type="checkbox"
+                      checked={persistResults}
+                      onChange={(event) =>
+                        setPersistResults(event.target.checked)
+                      }
+                      disabled={isAnalyzing}
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-800">
+                        Mettre à jour les tableaux de bord
+                      </span>
+
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">
+                        Laissez cette option décochée pour tester le pipeline sans remplacer le dataset actuellement présenté au jury.
+                      </span>
+                    </span>
+
+                  </label>
+
                   <button
                     type="button"
                     onClick={handleAnalyze}
@@ -989,6 +1017,13 @@ export default function ImportsPage() {
                   Le pipeline Data a analysé
                   automatiquement le dataset.
                 </p>
+
+                {!persistResults && (
+
+                  <p className="mt-2 text-sm font-medium text-amber-700">
+                    Mode test : les tableaux de bord existants ont été conservés.
+                  </p>
+                )}
 
                 {moteurUtilise && (
 

@@ -225,11 +225,12 @@ export type DatasetAnalysisResult = {
 
 export async function analyzeFleetDataset(
   uploadId: string,
-  importKey: string
+  importKey: string,
+  persistResults = true
 ): Promise<DatasetAnalysisResult> {
 
   const response = await fetch(
-    `${API_URL}/api/imports/${uploadId}/analyze`,
+    `${API_URL}/api/imports/${uploadId}/analyze?persist=${persistResults}`,
     {
       method: "POST",
       headers: {
