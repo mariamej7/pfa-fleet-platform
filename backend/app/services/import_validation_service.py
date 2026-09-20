@@ -69,6 +69,16 @@ MAX_ANALYSIS_ROWS = max(
     ),
 )
 
+PANDAS_WEB_SAMPLE_ROWS = max(
+    10_000,
+    int(
+        os.getenv(
+            "IMPORT_PANDAS_SAMPLE_ROWS",
+            "80000",
+        )
+    ),
+)
+
 SPARK_IMPORTS_ENABLED = (
     os.getenv(
         "ENABLE_SPARK_IMPORTS",
@@ -231,6 +241,19 @@ def select_processing_engine(
                 ),
         }
 
+    if row_count > PANDAS_WEB_SAMPLE_ROWS:
+        pandas_reason = (
+            "Mode web Render Free : Pandas analyse "
+            "un échantillon temporel réparti sur "
+            "toute la période afin de respecter "
+            "la mémoire disponible."
+        )
+    else:
+        pandas_reason = (
+            "Volume standard : "
+            "Pandas est adapté au traitement."
+        )
+
     return {
         "moteur_recommande":
             "pandas",
@@ -242,10 +265,7 @@ def select_processing_engine(
             SPARK_ROW_THRESHOLD,
 
         "raison_moteur":
-            (
-                "Volume standard : "
-                "Pandas est adapté au traitement."
-            ),
+            pandas_reason,
     }
 
 
@@ -775,6 +795,22 @@ def validate_dataset(
         message = (
             "Ce volume nécessite Apache Spark, "
             "désactivé sur l'instance web gratuite."
+        )
+
+    elif row_count > PANDAS_WEB_SAMPLE_ROWS:
+
+        compatible = True
+
+        analysis_level = (
+            "Analyse web optimisée"
+        )
+
+        message = (
+            "Le fichier complet a été validé. "
+            "Sur l'hébergement gratuit, Pandas "
+            "analysera un échantillon temporel "
+            f"d'environ {PANDAS_WEB_SAMPLE_ROWS} lignes "
+            "réparties sur toute la période."
         )
 
     else:

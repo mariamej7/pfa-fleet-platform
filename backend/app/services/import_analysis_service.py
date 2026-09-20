@@ -1,3 +1,5 @@
+import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -5,6 +7,17 @@ from typing import Dict
 from uuid import uuid4
 
 import pandas as pd
+
+
+PANDAS_WEB_SAMPLE_ROWS = max(
+    10_000,
+    int(
+        os.getenv(
+            "IMPORT_PANDAS_SAMPLE_ROWS",
+            "80000",
+        )
+    ),
+)
 
 
 # ============================================================
@@ -269,6 +282,106 @@ def _resolve_processing_engine(
                 "seuil_spark_lignes"
             ),
     }
+
+
+# ============================================================
+# ECHANTILLON WEB PANDAS
+# ============================================================
+
+def _prepare_pandas_analysis_file(
+    file_path: Path,
+    source_row_count: int,
+) -> tuple[Path, Dict]:
+    """
+    Conserve toute la période du fichier, mais réduit le nombre
+    de lignes analysées sur Render Free pour éviter un dépassement
+    de mémoire pendant les copies intermédiaires du pipeline Pandas.
+    """
+
+    normalized_row_count = max(
+        0,
+        int(source_row_count or 0),
+    )
+
+    sampling_info = {
+        "applied": False,
+        "source_rows": normalized_row_count,
+        "analyzed_rows": normalized_row_count,
+        "step": 1,
+        "target_rows": PANDAS_WEB_SAMPLE_ROWS,
+    }
+
+    if (
+        normalized_row_count
+        <= PANDAS_WEB_SAMPLE_ROWS
+    ):
+        return file_path, sampling_info
+
+    step = max(
+        2,
+        math.ceil(
+            normalized_row_count
+            / PANDAS_WEB_SAMPLE_ROWS
+        ),
+    )
+
+    sample_path = file_path.with_name(
+        (
+            f"{file_path.stem}"
+            ".analysis-sample"
+            f"{file_path.suffix.lower()}"
+        )
+    )
+
+    if file_path.suffix.lower() == ".csv":
+        sampled_dataframe = pd.read_csv(
+            file_path,
+            skiprows=lambda row_index: (
+                row_index > 0
+                and (row_index - 1) % step != 0
+            ),
+        )
+
+    elif file_path.suffix.lower() == ".parquet":
+        sampled_dataframe = (
+            pd.read_parquet(file_path)
+            .iloc[::step]
+            .copy()
+        )
+
+    else:
+        raise ValueError(
+            "Format de fichier non supporté."
+        )
+
+    sampled_dataframe = (
+        sampled_dataframe
+        .head(PANDAS_WEB_SAMPLE_ROWS)
+        .copy()
+    )
+
+    if sample_path.suffix == ".csv":
+        sampled_dataframe.to_csv(
+            sample_path,
+            index=False,
+        )
+    else:
+        sampled_dataframe.to_parquet(
+            sample_path,
+            index=False,
+        )
+
+    sampling_info.update(
+        {
+            "applied": True,
+            "analyzed_rows": int(
+                len(sampled_dataframe)
+            ),
+            "step": step,
+        }
+    )
+
+    return sample_path, sampling_info
 
 
 # ============================================================
@@ -601,6 +714,19 @@ def analyze_uploaded_dataset(
         )
 
     spark_session = None
+    analysis_file_path = file_path
+    sampling_info = {
+        "applied": False,
+        "source_rows": int(
+            engine["row_count"] or 0
+        ),
+        "analyzed_rows": int(
+            engine["row_count"] or 0
+        ),
+        "step": 1,
+        "target_rows":
+            PANDAS_WEB_SAMPLE_ROWS,
+    }
 
     try:
 
@@ -634,9 +760,17 @@ def analyze_uploaded_dataset(
 
         else:
 
+            (
+                analysis_file_path,
+                sampling_info,
+            ) = _prepare_pandas_analysis_file(
+                file_path,
+                engine["row_count"],
+            )
+
             pipeline_results = (
                 _run_pandas_pipeline(
-                    file_path
+                    analysis_file_path
                 )
             )
 
@@ -909,6 +1043,9 @@ def analyze_uploaded_dataset(
                     "spark_threshold"
                 ],
 
+            "web_sampling":
+                sampling_info,
+
             # ------------------------------------------------
             # PREPARATION
             # ------------------------------------------------
@@ -919,6 +1056,20 @@ def analyze_uploaded_dataset(
                     int(
                         preparation_report[
                             "nombre_lignes_brutes"
+                        ]
+                    ),
+
+                "nombre_lignes_source":
+                    int(
+                        sampling_info[
+                            "source_rows"
+                        ]
+                    ),
+
+                "echantillonnage_applique":
+                    bool(
+                        sampling_info[
+                            "applied"
                         ]
                     ),
 
@@ -1150,4 +1301,15 @@ def analyze_uploaded_dataset(
                 spark_session.stop()
 
             except Exception:
+                pass
+
+        if analysis_file_path != file_path:
+
+            try:
+
+                analysis_file_path.unlink(
+                    missing_ok=True
+                )
+
+            except OSError:
                 pass
