@@ -36,11 +36,7 @@ L'objectif est de transformer des données télématiques de véhicules en indic
 - `database/` : schémas SQL.
 - `docs/` : documentation du projet.
 
-## Limites et interprétation
 
-Les événements identifiés constituent des candidats à examiner. La plateforme ne confirme pas automatiquement un vol, une fuite ou une fraude.
-
-La concordance entre les règles métier et le modèle IA ne constitue pas une mesure de précision du modèle.
 
 ## Confidentialité
 
