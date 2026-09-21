@@ -37,7 +37,6 @@ L'objectif est de transformer des données télématiques de véhicules en indic
 - `docs/` : documentation du projet.
 
 
-
 ## Confidentialité
 
 Les données réelles de flotte, les fichiers de configuration contenant des secrets et les identifiants de connexion ne sont pas destinés à être publiés dans ce dépôt.
