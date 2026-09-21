@@ -292,9 +292,35 @@ export type DatasetAnalysisResult = {
 };
 
 
+export type SparkAnalysisQueuedResult = {
+  status: "queued";
+  execution_mode: "spark_cloud";
+  analysis_run_id: string;
+  upload_id: string;
+  message: string;
+};
+
+
+export type AnalysisRunStatus = {
+  analysis_run_id: string;
+  upload_id: string;
+  filename: string;
+  status: "processing" | "completed" | "failed";
+  created_at: string;
+  completed_at: string | null;
+  nombre_lignes_preparees: number | null;
+  nombre_vehicules: number | null;
+  nombre_alertes_finales: number | null;
+  error_message: string | null;
+};
+
+
 export async function analyzeFleetDataset(
   uploadId: string
-): Promise<DatasetAnalysisResult> {
+): Promise<
+  DatasetAnalysisResult |
+  SparkAnalysisQueuedResult
+> {
 
   const response = await postImportRequest(
     `/api/imports/${uploadId}/analyze`
@@ -304,6 +330,28 @@ export async function analyzeFleetDataset(
     throw await getApiError(
       response,
       "Erreur pendant l'analyse du dataset."
+    );
+  }
+
+  return response.json();
+}
+
+
+export async function getFleetAnalysisStatus(
+  uploadId: string,
+  analysisRunId: string
+): Promise<AnalysisRunStatus> {
+
+  const response = await postImportRequest(
+    `/api/imports/${uploadId}/status?analysis_run_id=${encodeURIComponent(
+      analysisRunId
+    )}`
+  );
+
+  if (!response.ok) {
+    throw await getApiError(
+      response,
+      "Impossible de vérifier l'état de l'analyse Spark."
     );
   }
 

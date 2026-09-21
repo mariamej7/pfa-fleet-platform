@@ -57,14 +57,14 @@ SPARK_ROW_THRESHOLD = int(
     )
 )
 
-# L'instance Render gratuite (512 Mo de RAM) est réservée
-# à une démonstration Pandas sur de petits datasets.
+# Render valide le fichier par blocs. Les volumes Spark sont ensuite
+# délégués à un exécuteur cloud disposant de davantage de mémoire.
 MAX_ANALYSIS_ROWS = max(
     1,
     int(
         os.getenv(
             "IMPORT_MAX_ANALYSIS_ROWS",
-            "350000",
+            "5000000",
         )
     ),
 )
@@ -87,6 +87,12 @@ SPARK_IMPORTS_ENABLED = (
     .strip()
     .lower()
     == "true"
+    or bool(
+        os.getenv(
+            "GITHUB_SPARK_TOKEN",
+            "",
+        ).strip()
+    )
 )
 
 
@@ -795,6 +801,23 @@ def validate_dataset(
         message = (
             "Ce volume nécessite Apache Spark, "
             "désactivé sur l'instance web gratuite."
+        )
+
+    elif (
+        row_count >= SPARK_ROW_THRESHOLD
+        and SPARK_IMPORTS_ENABLED
+    ):
+
+        compatible = True
+
+        analysis_level = (
+            "Analyse Apache Spark"
+        )
+
+        message = (
+            "Le fichier complet a été validé. "
+            "Il sera analysé par Apache Spark "
+            "sur l'exécuteur cloud dédié."
         )
 
     elif row_count > PANDAS_WEB_SAMPLE_ROWS:

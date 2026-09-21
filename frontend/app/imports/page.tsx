@@ -20,8 +20,10 @@ import {
 
 import {
   analyzeFleetDataset,
+  getFleetAnalysisStatus,
   uploadFleetFile,
   validateFleetDataset,
+  type AnalysisRunStatus,
   type DatasetAnalysisResult,
   type DatasetValidationResult,
   type UploadResult,
@@ -66,6 +68,12 @@ export default function ImportsPage() {
 
   const [errorMessage, setErrorMessage] =
     useState<string | null>(null);
+
+  const [isSparkCloudAnalysis, setIsSparkCloudAnalysis] =
+    useState(false);
+
+  const [sparkAnalysisStatus, setSparkAnalysisStatus] =
+    useState<AnalysisRunStatus | null>(null);
 
 
   // ============================================================
@@ -128,6 +136,8 @@ export default function ImportsPage() {
 
     setUploadResult(null);
     setValidationResult(null);
+    setSparkAnalysisStatus(null);
+    setIsSparkCloudAnalysis(false);
     setErrorMessage(null);
   }
 
@@ -138,6 +148,8 @@ export default function ImportsPage() {
 
     setUploadResult(null);
     setValidationResult(null);
+    setSparkAnalysisStatus(null);
+    setIsSparkCloudAnalysis(false);
 
     setErrorMessage(null);
 
@@ -220,6 +232,8 @@ export default function ImportsPage() {
     setUploadResult(null);
     setValidationResult(null);
     setAnalysisResult(null);
+    setSparkAnalysisStatus(null);
+    setIsSparkCloudAnalysis(false);
 
     localStorage.removeItem(
       LAST_ANALYSIS_STORAGE_KEY
@@ -288,6 +302,8 @@ export default function ImportsPage() {
 
     setErrorMessage(null);
     setAnalysisResult(null);
+    setSparkAnalysisStatus(null);
+    setIsSparkCloudAnalysis(false);
 
     try {
 
@@ -295,6 +311,50 @@ export default function ImportsPage() {
         await analyzeFleetDataset(
           uploadResult.upload_id
         );
+
+      if (
+        "execution_mode" in result
+      ) {
+        setIsSparkCloudAnalysis(true);
+
+        for (
+          let attempt = 0;
+          attempt < 270;
+          attempt += 1
+        ) {
+          await new Promise(
+            (resolve) => setTimeout(
+              resolve,
+              10_000
+            )
+          );
+
+          const status =
+            await getFleetAnalysisStatus(
+              uploadResult.upload_id,
+              result.analysis_run_id
+            );
+
+          setSparkAnalysisStatus(
+            status
+          );
+
+          if (status.status === "completed") {
+            return;
+          }
+
+          if (status.status === "failed") {
+            throw new Error(
+              status.error_message ||
+              "Le traitement Spark cloud a échoué."
+            );
+          }
+        }
+
+        throw new Error(
+          "Le traitement Spark dépasse le délai de suivi."
+        );
+      }
 
       setAnalysisResult(
         result
@@ -863,11 +923,77 @@ export default function ImportsPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-blue-700">
-                  Préparation des données,
-                  règles métier,
-                  analyse contextuelle,
-                  Isolation Forest et calcul des KPI.
+                  {isSparkCloudAnalysis
+                    ? (
+                        "Apache Spark traite le fichier complet " +
+                        "sur l'exécuteur cloud. Cette étape peut " +
+                        "prendre plusieurs minutes."
+                      )
+                    : (
+                        "Préparation des données, règles métier, " +
+                        "analyse contextuelle, Isolation Forest " +
+                        "et calcul des KPI."
+                      )}
                 </p>
+
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+
+        {/* =================================================== */}
+        {/* RESULTAT SPARK CLOUD */}
+        {/* =================================================== */}
+
+        {sparkAnalysisStatus?.status === "completed" && (
+
+          <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-6">
+
+            <div className="flex items-start gap-3">
+
+              <CheckCircle2
+                size={26}
+                className="mt-0.5 text-emerald-600"
+              />
+
+              <div>
+
+                <h2 className="text-lg font-semibold text-emerald-900">
+                  Analyse Apache Spark terminée
+                </h2>
+
+                <p className="mt-1 text-sm text-emerald-700">
+                  Le fichier complet a été traité dans le cloud
+                  et les résultats ont été enregistrés dans la plateforme.
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-700">
+                  <span>
+                    Lignes préparées :{" "}
+                    {sparkAnalysisStatus.nombre_lignes_preparees
+                      ?.toLocaleString("fr-FR") ?? "—"}
+                  </span>
+
+                  <span>
+                    Véhicules :{" "}
+                    {sparkAnalysisStatus.nombre_vehicules ?? "—"}
+                  </span>
+
+                  <span>
+                    Alertes :{" "}
+                    {sparkAnalysisStatus.nombre_alertes_finales ?? "—"}
+                  </span>
+                </div>
+
+                <a
+                  href="/dashboard"
+                  className="mt-5 inline-flex rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                >
+                  Voir le dashboard mis à jour
+                </a>
 
               </div>
 

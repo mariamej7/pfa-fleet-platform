@@ -18,17 +18,31 @@ from fastapi import (
     Query,
     UploadFile,
 )
+from fastapi.responses import FileResponse
 
 from app.schemas.imports import (
     DatasetValidationResponse,
 )
 
 from app.services.import_validation_service import (
+    find_uploaded_file,
+    load_validation_metadata,
     validate_dataset,
 )
 
 from app.services.import_analysis_service import (
     analyze_uploaded_dataset,
+)
+
+from app.services.database_persistence_service import (
+    create_analysis_run,
+    mark_analysis_run_failed,
+)
+
+from app.services.spark_cloud_service import (
+    dispatch_spark_analysis,
+    get_analysis_run_status,
+    spark_cloud_is_configured,
 )
 
 
@@ -173,13 +187,14 @@ ALLOWED_EXTENSIONS = {
     ".parquet",
 }
 
-# Limites du mode démonstration hébergé sur Render Free.
+# Le transfert est écrit sur disque par blocs. Le calcul Spark est délégué
+# au runner cloud afin de ne pas charger le fichier complet dans Render.
 MAX_UPLOAD_SIZE_MB = max(
     1,
     int(
         os.getenv(
             "IMPORT_MAX_UPLOAD_SIZE_MB",
-            "25",
+            "100",
         )
     ),
 )
@@ -449,7 +464,134 @@ def validate_uploaded_dataset(
 
 
 # =========================================================
-# 3. ANALYSE DU DATASET
+# 3. TRANSFERT ET SUIVI DU TRAITEMENT SPARK CLOUD
+# =========================================================
+
+@router.get(
+    "/{upload_id}/download"
+)
+def download_uploaded_dataset(
+    upload_id: str,
+):
+    """Téléchargement protégé utilisé uniquement par GitHub Actions."""
+
+    _require_valid_upload_id(
+        upload_id
+    )
+
+    file_path = find_uploaded_file(
+        UPLOAD_DIR,
+        upload_id,
+    )
+
+    if file_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Fichier importé introuvable.",
+        )
+
+    media_type = (
+        "text/csv"
+        if file_path.suffix.lower() == ".csv"
+        else "application/octet-stream"
+    )
+
+    return FileResponse(
+        path=file_path,
+        filename=file_path.name,
+        media_type=media_type,
+    )
+
+
+@router.post(
+    "/{upload_id}/status"
+)
+def get_uploaded_analysis_status(
+    upload_id: str,
+    analysis_run_id: str | None = Query(
+        default=None,
+    ),
+):
+    _require_valid_upload_id(
+        upload_id
+    )
+
+    result = get_analysis_run_status(
+        upload_id,
+        analysis_run_id,
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Analyse introuvable.",
+        )
+
+    return result
+
+
+@router.post(
+    "/{upload_id}/cleanup"
+)
+def cleanup_cloud_upload(
+    upload_id: str,
+):
+    _require_valid_upload_id(
+        upload_id
+    )
+
+    _cleanup_upload_files(
+        upload_id
+    )
+
+    return {
+        "status": "cleaned",
+        "upload_id": upload_id,
+    }
+
+
+@router.post(
+    "/{upload_id}/spark-failed"
+)
+def mark_cloud_analysis_failed(
+    upload_id: str,
+    analysis_run_id: str = Query(...),
+):
+    _require_valid_upload_id(
+        upload_id
+    )
+
+    run = get_analysis_run_status(
+        upload_id,
+        analysis_run_id,
+    )
+
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Analyse introuvable.",
+        )
+
+    mark_analysis_run_failed(
+        analysis_run_id,
+        (
+            "Le traitement Spark cloud a échoué. "
+            "Consultez les journaux GitHub Actions."
+        ),
+    )
+
+    _cleanup_upload_files(
+        upload_id
+    )
+
+    return {
+        "status": "failed",
+        "analysis_run_id": analysis_run_id,
+    }
+
+
+# =========================================================
+# 4. ANALYSE DU DATASET
 # =========================================================
 
 @router.post(
@@ -497,7 +639,85 @@ def analyze_uploaded_file(
             },
         )
 
+    cleanup_after_request = True
+
     try:
+
+        metadata = load_validation_metadata(
+            UPLOAD_DIR,
+            upload_id,
+        )
+
+        if metadata is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Le fichier doit être validé "
+                    "avant de lancer l'analyse."
+                ),
+            )
+
+        if (
+            metadata.get(
+                "moteur_recommande"
+            )
+            == "spark"
+        ):
+            if not persist:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Le test sans enregistrement n'est pas "
+                        "disponible pour Spark cloud."
+                    ),
+                )
+
+            if not spark_cloud_is_configured():
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Le moteur Spark cloud n'est pas encore "
+                        "configuré sur le serveur."
+                    ),
+                )
+
+            file_path = find_uploaded_file(
+                UPLOAD_DIR,
+                upload_id,
+            )
+
+            if file_path is None:
+                raise FileNotFoundError(
+                    "Fichier importé introuvable."
+                )
+
+            analysis_run_id = create_analysis_run(
+                upload_id=upload_id,
+                filename=file_path.name,
+            )
+
+            try:
+                result = dispatch_spark_analysis(
+                    upload_id=upload_id,
+                    analysis_run_id=
+                        analysis_run_id,
+                    extension=file_path.suffix,
+                )
+
+            except RuntimeError as error:
+                mark_analysis_run_failed(
+                    analysis_run_id,
+                    str(error),
+                )
+
+                raise HTTPException(
+                    status_code=503,
+                    detail=str(error),
+                ) from error
+
+            cleanup_after_request = False
+
+            return result
 
         result = analyze_uploaded_dataset(
             UPLOAD_DIR,
@@ -506,6 +726,10 @@ def analyze_uploaded_file(
         )
 
         return result
+
+    except HTTPException:
+
+        raise
 
     except FileNotFoundError as error:
 
@@ -538,8 +762,9 @@ def analyze_uploaded_file(
 
     finally:
 
-        _cleanup_upload_files(
-            upload_id
-        )
+        if cleanup_after_request:
+            _cleanup_upload_files(
+                upload_id
+            )
 
         _analysis_lock.release()

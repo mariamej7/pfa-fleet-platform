@@ -661,6 +661,7 @@ def analyze_uploaded_dataset(
     upload_dir: Path,
     upload_id: str,
     persist_results: bool = True,
+    analysis_run_id: str | None = None,
 ) -> Dict:
     """
     Lance automatiquement le pipeline approprié.
@@ -699,14 +700,17 @@ def analyze_uploaded_dataset(
     # 3. CREER LE RUN
     # --------------------------------------------------------
 
-    if persist_results:
+    if (
+        persist_results
+        and analysis_run_id is None
+    ):
 
         analysis_run_id = create_analysis_run(
             upload_id=upload_id,
             filename=file_path.name,
         )
 
-    else:
+    elif not persist_results:
 
         analysis_run_id = (
             "dry-run-"

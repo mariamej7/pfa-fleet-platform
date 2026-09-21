@@ -1,0 +1,119 @@
+name: Analyse Spark flotte
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_id:
+        description: Identifiant sécurisé du fichier
+        required: true
+        type: string
+      analysis_run_id:
+        description: Identifiant du traitement PostgreSQL
+        required: true
+        type: string
+      file_extension:
+        description: Extension csv ou parquet
+        required: true
+        type: string
+      backend_url:
+        description: URL HTTPS du backend
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pfa-spark-analysis
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Pipeline Apache Spark
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      UPLOAD_ID: ${{ inputs.upload_id }}
+      ANALYSIS_RUN_ID: ${{ inputs.analysis_run_id }}
+      FILE_EXTENSION: ${{ inputs.file_extension }}
+      BACKEND_URL: ${{ inputs.backend_url }}
+
+    steps:
+      - name: Récupérer le projet
+        uses: actions/checkout@v4
+
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Installer Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Installer les dépendances
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Télécharger le fichier protégé
+        env:
+          IMPORT_API_KEY: ${{ secrets.IMPORT_API_KEY }}
+        run: |
+          mkdir -p data/uploads
+          download_path="data/uploads/${UPLOAD_ID}.${FILE_EXTENSION}"
+          curl --fail --show-error --silent \
+            --retry 5 \
+            --retry-all-errors \
+            -H "X-Import-Key: ${IMPORT_API_KEY}" \
+            "${BACKEND_URL}/api/imports/${UPLOAD_ID}/download" \
+            --output "${download_path}"
+          echo "DOWNLOAD_PATH=${download_path}" >> "${GITHUB_ENV}"
+
+      - name: Nettoyer la copie temporaire Render
+        continue-on-error: true
+        env:
+          IMPORT_API_KEY: ${{ secrets.IMPORT_API_KEY }}
+        run: |
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "X-Import-Key: ${IMPORT_API_KEY}" \
+            "${BACKEND_URL}/api/imports/${UPLOAD_ID}/cleanup"
+
+      - name: Exécuter le pipeline Spark complet
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          ENABLE_SPARK_IMPORTS: "true"
+          IMPORT_MAX_ANALYSIS_ROWS: "5000000"
+          PFA_SPARK_ROW_THRESHOLD: "1000000"
+          PYTHONPATH: backend:pipeline
+          PYSPARK_PYTHON: python
+          PYSPARK_DRIVER_PYTHON: python
+          PYSPARK_SUBMIT_ARGS: >-
+            --driver-memory 4g
+            --conf spark.driver.maxResultSize=1g
+            --conf spark.sql.shuffle.partitions=4
+            pyspark-shell
+        run: |
+          python -m app.workers.spark_analysis_worker \
+            --upload-dir data/uploads \
+            --upload-id "${UPLOAD_ID}" \
+            --analysis-run-id "${ANALYSIS_RUN_ID}"
+
+      - name: Signaler un échec au site
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          IMPORT_API_KEY: ${{ secrets.IMPORT_API_KEY }}
+        run: |
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "X-Import-Key: ${IMPORT_API_KEY}" \
+            "${BACKEND_URL}/api/imports/${UPLOAD_ID}/spark-failed?analysis_run_id=${ANALYSIS_RUN_ID}"
