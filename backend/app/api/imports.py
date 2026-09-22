@@ -16,6 +16,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
 from fastapi.responses import FileResponse
@@ -58,6 +59,126 @@ IMPORT_TOKEN_TTL_SECONDS = max(
         900,
     ),
 )
+
+SPARK_TOKEN_TTL_SECONDS = 3600
+
+
+def _create_spark_token(
+    upload_id: str,
+    analysis_run_id: str,
+    secret_key: str,
+) -> str:
+    """Crée un jeton temporaire limité à un traitement Spark."""
+
+    issued_at = str(
+        int(time.time())
+    )
+
+    payload = (
+        f"spark.{issued_at}.{upload_id}."
+        f"{analysis_run_id}"
+    )
+
+    signature = hmac.new(
+        secret_key.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    return f"{payload}.{signature}"
+
+
+def _is_valid_spark_token(
+    token: str | None,
+    secret_key: str,
+    expected_upload_id: str | None,
+    expected_analysis_run_id: str | None,
+) -> bool:
+    if not token or not expected_upload_id:
+        return False
+
+    try:
+        (
+            token_type,
+            issued_at_raw,
+            upload_id,
+            analysis_run_id,
+            signature,
+        ) = token.split(".", 4)
+
+        if token_type != "spark":
+            return False
+
+        if not re.fullmatch(
+            r"[0-9]{10,}",
+            issued_at_raw,
+        ):
+            return False
+
+        if not _is_valid_upload_id(
+            upload_id
+        ):
+            return False
+
+        if not re.fullmatch(
+            r"[0-9a-fA-F-]{32,36}",
+            analysis_run_id,
+        ):
+            return False
+
+        if not re.fullmatch(
+            r"[0-9a-fA-F]{64}",
+            signature,
+        ):
+            return False
+
+        if not secrets.compare_digest(
+            upload_id,
+            expected_upload_id,
+        ):
+            return False
+
+        if (
+            expected_analysis_run_id
+            and not secrets.compare_digest(
+                analysis_run_id,
+                expected_analysis_run_id,
+            )
+        ):
+            return False
+
+        issued_at = int(
+            issued_at_raw
+        )
+        now = int(time.time())
+
+        if issued_at > now + 30:
+            return False
+
+        if (
+            now - issued_at
+            > SPARK_TOKEN_TTL_SECONDS
+        ):
+            return False
+
+        payload = (
+            f"spark.{issued_at_raw}.{upload_id}."
+            f"{analysis_run_id}"
+        )
+
+        expected_signature = hmac.new(
+            secret_key.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+        return secrets.compare_digest(
+            signature,
+            expected_signature,
+        )
+
+    except (TypeError, ValueError):
+        return False
 
 
 def _is_valid_import_token(
@@ -125,8 +246,10 @@ def _is_valid_import_token(
 
 
 def require_import_key(
+    request: Request,
     x_import_key: str | None = Header(default=None),
     x_import_token: str | None = Header(default=None),
+    x_spark_token: str | None = Header(default=None),
 ) -> None:
     expected_key = os.getenv(
         "IMPORT_API_KEY",
@@ -155,7 +278,36 @@ def require_import_key(
         expected_key,
     )
 
-    if not key_is_valid and not token_is_valid:
+    route_name = request.url.path.rsplit(
+        "/",
+        1,
+    )[-1]
+
+    spark_token_is_valid = False
+
+    if route_name in {
+        "download",
+        "cleanup",
+        "spark-failed",
+    }:
+        spark_token_is_valid = (
+            _is_valid_spark_token(
+                x_spark_token,
+                expected_key,
+                request.path_params.get(
+                    "upload_id"
+                ),
+                request.query_params.get(
+                    "analysis_run_id"
+                ),
+            )
+        )
+
+    if not (
+        key_is_valid
+        or token_is_valid
+        or spark_token_is_valid
+    ):
         raise HTTPException(
             status_code=401,
             detail="Autorisation d'import invalide.",
@@ -696,12 +848,22 @@ def analyze_uploaded_file(
                 filename=file_path.name,
             )
 
+            spark_token = _create_spark_token(
+                upload_id,
+                analysis_run_id,
+                os.getenv(
+                    "IMPORT_API_KEY",
+                    "",
+                ).strip(),
+            )
+
             try:
                 result = dispatch_spark_analysis(
                     upload_id=upload_id,
                     analysis_run_id=
                         analysis_run_id,
                     extension=file_path.suffix,
+                    spark_token=spark_token,
                 )
 
             except RuntimeError as error:
