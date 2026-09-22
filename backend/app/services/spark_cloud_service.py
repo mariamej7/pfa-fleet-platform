@@ -31,6 +31,7 @@ def dispatch_spark_analysis(
     upload_id: str,
     analysis_run_id: str,
     extension: str,
+    spark_token: str,
 ) -> dict:
     """Déclenche le workflow Spark sans exposer le jeton au navigateur."""
 
@@ -79,6 +80,7 @@ def dispatch_spark_analysis(
                 "analysis_run_id": analysis_run_id,
                 "file_extension": extension.lstrip("."),
                 "backend_url": backend_url,
+                "spark_token": spark_token,
             },
         }
     ).encode("utf-8")
