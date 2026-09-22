@@ -19,6 +19,10 @@ on:
         description: URL HTTPS du backend
         required: true
         type: string
+      spark_token:
+        description: Jeton temporaire du traitement Spark
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -38,6 +42,7 @@ jobs:
       ANALYSIS_RUN_ID: ${{ inputs.analysis_run_id }}
       FILE_EXTENSION: ${{ inputs.file_extension }}
       BACKEND_URL: ${{ inputs.backend_url }}
+      SPARK_TOKEN: ${{ inputs.spark_token }}
 
     steps:
       - name: Récupérer le projet
@@ -60,27 +65,24 @@ jobs:
         run: python -m pip install -r backend/requirements.txt
 
       - name: Télécharger le fichier protégé
-        env:
-          IMPORT_API_KEY: ${{ secrets.IMPORT_API_KEY }}
         run: |
+          echo "::add-mask::${SPARK_TOKEN}"
           mkdir -p data/uploads
           download_path="data/uploads/${UPLOAD_ID}.${FILE_EXTENSION}"
           curl --fail --show-error --silent \
             --retry 5 \
             --retry-all-errors \
-            -H "X-Import-Key: ${IMPORT_API_KEY}" \
+            -H "X-Spark-Token: ${SPARK_TOKEN}" \
             "${BACKEND_URL}/api/imports/${UPLOAD_ID}/download" \
             --output "${download_path}"
           echo "DOWNLOAD_PATH=${download_path}" >> "${GITHUB_ENV}"
 
       - name: Nettoyer la copie temporaire Render
         continue-on-error: true
-        env:
-          IMPORT_API_KEY: ${{ secrets.IMPORT_API_KEY }}
         run: |
           curl --fail --show-error --silent \
             -X POST \
-            -H "X-Import-Key: ${IMPORT_API_KEY}" \
+            -H "X-Spark-Token: ${SPARK_TOKEN}" \
             "${BACKEND_URL}/api/imports/${UPLOAD_ID}/cleanup"
 
       - name: Exécuter le pipeline Spark complet
@@ -110,10 +112,8 @@ jobs:
       - name: Signaler un échec au site
         if: ${{ failure() }}
         continue-on-error: true
-        env:
-          IMPORT_API_KEY: ${{ secrets.IMPORT_API_KEY }}
         run: |
           curl --fail --show-error --silent \
             -X POST \
-            -H "X-Import-Key: ${IMPORT_API_KEY}" \
+            -H "X-Spark-Token: ${SPARK_TOKEN}" \
             "${BACKEND_URL}/api/imports/${UPLOAD_ID}/spark-failed?analysis_run_id=${ANALYSIS_RUN_ID}"
